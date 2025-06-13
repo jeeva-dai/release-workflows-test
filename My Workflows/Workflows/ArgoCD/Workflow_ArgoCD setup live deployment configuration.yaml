@@ -1,0 +1,139 @@
+---
+apiVersion: xl-release/v1
+kind: Templates
+metadata:
+  path: Workflows/ArgoCD
+  home: My Workflows/Workflows/ArgoCD
+spec:
+- template: ArgoCD setup live deployment configuration
+  description: "Create or update ArgoCD live deployment configuration"
+  phases:
+  - phase: Input
+    tasks:
+    - name: Get configuration details
+      type: xlrelease.ScriptTask
+      description: Fetches details about target server.
+      script: |-
+        statusWebhookEventSource = configurationApi.getConfiguration("${statusWebhookEventSourceId}")
+        sourceServer = statusWebhookEventSource["sourceServer"]
+
+        releaseVariables['targetServerTitle'] = sourceServer.title
+        releaseVariables['targetServerUrl'] = sourceServer.url
+        releaseVariables['statusWebhookEventSourceFolderId'] = statusWebhookEventSource.folderId
+        releaseVariables['liveDeploymentConfigurationName'] = sourceServer.title + " deployments"
+
+        if "${liveDeploymentConfigurationId}":
+          liveDeploymentConfiguration = configurationApi.getConfiguration("${liveDeploymentConfigurationId}")
+          releaseVariables['liveDeploymentConfigurationName'] = liveDeploymentConfiguration.title
+          releaseVariables['liveDeploymentConfigurationApplication'] = liveDeploymentConfiguration.application
+    - name: Live deployment configuration parameters
+      type: xlrelease.UserInputTask
+      description: |-
+        Enter a name for the configuration.
+        
+        Choose which application to listen.
+        Please give the full name of the application on the ArgoCD server you want to listen to.
+        For example:
+        > **Application**
+        > `My app` --  only listen to application **My app**
+        >
+        You can also listen to multiple applications by using regular expressions.
+        For example, `.*` will listen to all applications.
+        
+        **Deployment server:** [${targetServerTitle}](${targetServerUrl})
+      variables:
+      - liveDeploymentConfigurationName
+      - liveDeploymentConfigurationApplication
+    color: '#3d6c9e'
+  - phase: Configuration
+    tasks:
+    - name: Configure Digital.ai Release
+      type: xlrelease.ScriptTask
+      description: "Configuring **${liveDeploymentConfigurationName}**"
+      script: |-
+        from com.xebialabs.xlrelease.domain import Configuration
+        from com.xebialabs.deployit.plugin.api.reflect import Type
+
+        if "${liveDeploymentConfigurationId}":
+          liveDeploymentConfiguration = configurationApi.getConfiguration("${liveDeploymentConfigurationId}")
+          liveDeploymentConfiguration.title = "${liveDeploymentConfigurationName}"
+          liveDeploymentConfiguration.application = "${liveDeploymentConfigurationApplication}"
+
+          configurationApi.updateConfiguration("${liveDeploymentConfigurationId}", liveDeploymentConfiguration)
+        else:
+          statusWebhookEventSource = configurationApi.getConfiguration("${statusWebhookEventSourceId}")
+
+          liveDeploymentConfiguration = Configuration()
+          liveDeploymentConfiguration.type = Type.valueOf("argocd.DeploymentConfig")
+          liveDeploymentConfiguration.title = "${liveDeploymentConfigurationName}"
+          liveDeploymentConfiguration.folderId = "${statusWebhookEventSourceFolderId}"
+          liveDeploymentConfiguration.setProperty("application", "${liveDeploymentConfigurationApplication}")
+
+          liveDeploymentConfiguration = configurationApi.addConfiguration(liveDeploymentConfiguration)
+
+          liveDeploymentConfigs = statusWebhookEventSource.getProperty("liveDeploymentConfigs")
+          liveDeploymentConfigs.add(liveDeploymentConfiguration)
+
+          statusWebhookEventSource.setProperty("liveDeploymentConfigs", liveDeploymentConfigs)
+
+          configurationApi.updateConfiguration("${statusWebhookEventSourceId}", statusWebhookEventSource)
+    - name: Patch ArgoCD applications
+      type: xlrelease.ScriptTask
+      description: |-
+        Patches ArgoCD applications by running a container script, adding the necessary annotation to enable live event notifications.
+
+        The following annotation is applied to all apps matching the specified filter:
+        `notifications.argoproj.io/subscribe.on-app-status-changed.release-webhook`
+      script: |-
+        from java.lang import Throwable
+
+        try:
+          deploymentServerApi.patchDeploymentServer("${statusWebhookEventSourceId}")
+        except Throwable as e:
+          if "Cannot find active remote runner" in str(e):
+            raise Exception("Failed to find active remote runner for executing container script.")
+          raise
+    color: '#3d6c9e'
+  kind: WORKFLOW
+  tags:
+    - Remote ArgoCD
+    - deployment server
+    - config
+    - internal
+  categories:
+    - Application onboarding
+  variables:
+  - type: xlrelease.StringVariable
+    key: statusWebhookEventSourceId
+  - type: xlrelease.StringVariable
+    key: liveDeploymentConfigurationId
+    requiresValue: false
+  - type: xlrelease.StringVariable
+    key: liveDeploymentConfigurationName
+    showOnReleaseStart: false
+    label: Configuration name
+    description: The name of live deployment configuration
+  - type: xlrelease.StringVariable
+    key: liveDeploymentConfigurationApplication
+    showOnReleaseStart: false
+    label: Application
+    description: Application name in ArgoCD. You may enter a regular expression here.
+    value: .*
+  - type: xlrelease.StringVariable
+    key: targetServerTitle
+    requiresValue: false
+    showOnReleaseStart: false
+  - type: xlrelease.StringVariable
+    key: targetServerUrl
+    requiresValue: false
+    showOnReleaseStart: false
+  - type: xlrelease.StringVariable
+    key: statusWebhookEventSourceFolderId
+    requiresValue: false
+    showOnReleaseStart: false
+  disableNotifications: true
+  author: Digital.ai
+  logo:
+    type: xlrelease.TemplateLogo
+    contentType: image/png
+    file: !file "template-logo/c9e27d5b1d5ed9738d58781439732acacd6b482d/argocd.svg"
