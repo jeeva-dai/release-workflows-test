@@ -1,0 +1,118 @@
+---
+apiVersion: xl-release/v1
+kind: Templates
+metadata:
+  path: Workflows/Digital.ai Deploy
+  home: Digital.ai - Official/Workflows/Digital.ai Deploy
+spec:
+  - template: Deploy setup deployment server
+    description: Create required connections for Deploy deployment server
+    scheduledStartDate: 2024-08-28T09:00:00+02:00
+    dueDate: 2024-08-28T10:00:00+02:00
+    phases:
+      - phase: User Input
+        tasks:
+          - name: Select Deploy server
+            type: xlrelease.UserInputTask
+            description: |-
+              This workflow sets up Live Deployments with Digital.ai Deploy.
+              First, choose the Deploy server that you want to listen to.
+            variables:
+              - server
+          - name: Test connection
+            type: xlrelease.ScriptTask
+            description: Test connection to deployment server.
+            script: |-
+              from java.lang import Throwable
+              
+              serverId = releaseVariables['server']
+              
+              statusResponse = configurationApi.checkStatus(serverId)
+            
+              if not statusResponse.success:
+                if "Cannot find active remote runner" in statusResponse.errorText:
+                  raise Exception("Failed to find active remote runner for executing container script.")
+                raise Exception(statusResponse.errorText)
+        color: "#3d6c9e"
+      - phase: Configuration
+        tasks:
+          - name: Configure Digital.ai Release
+            type: xlrelease.ScriptTask
+            description: Configuring Release to process incoming deployment notifications
+              from Digital.ai Deploy
+            script: |-
+              from com.xebialabs.xlrelease.api.v1.forms import DeploymentServerSetup
+              from java.lang import Throwable
+              folderId = getCurrentFolder().getId()
+              serverId = releaseVariables['server']
+              deploymentServerSetup = DeploymentServerSetup(folderId, serverId)
+              try:
+                statusWebhookEventSourceId = deploymentServerApi.setupDeploymentServer(deploymentServerSetup)
+                releaseVariables['statusWebhookEventSourceId'] = statusWebhookEventSourceId
+              except Throwable as e:
+                if "Cannot find active remote runner" in str(e):
+                  raise Exception("Failed to find active remote runner for executing container script.")
+                raise
+          - name: Configure Digital.ai Deploy
+            type: xlrelease.ScriptTask
+            description: Configuring Digital.ai Deploy to send deployment notifications
+              to Release.
+            script: |-
+              from java.lang import Throwable
+              try:
+                autoConfigResponse = deploymentServerApi.autoconfigureDeploymentServer("${statusWebhookEventSourceId}")
+                releaseVariables['autoconfigMessage'] = autoConfigResponse.message
+                releaseVariables['autoconfigUrl'] = autoConfigResponse.url
+                releaseVariables['autoconfigDetails'] = autoConfigResponse.details
+              except Throwable as e:
+                if "Cannot find active remote runner" in str(e):
+                  raise Exception("Failed to find active remote runner for executing container script.")
+                raise
+        color: "#3d6c9e"
+      - phase: Confirmation
+        tasks:
+          - name: Configuration successful
+            type: xlrelease.Task
+            description: |-
+              ${autoconfigMessage}
+              [View configuration in Deploy](${autoconfigUrl})
+        color: "#3d6c9e"
+    kind: WORKFLOW
+    tags:
+      - Remote Deploy
+      - deployment server
+      - new
+    categories:
+      - Create Deployment Server
+    variables:
+      - type: xlrelease.StringVariable
+        key: statusWebhookEventSourceId
+        requiresValue: false
+        showOnReleaseStart: false
+      - type: xlrelease.ReferenceVariable
+        key: server
+        requiresValue: false
+        showOnReleaseStart: false
+        label: Deploy server
+        referencedType: digitalai.DeployServer
+      - type: xlrelease.StringVariable
+        key: autoconfigMessage
+        requiresValue: false
+        showOnReleaseStart: false
+        label: Response message
+      - type: xlrelease.StringVariable
+        key: autoconfigUrl
+        requiresValue: false
+        showOnReleaseStart: false
+        label: Response URL
+      - type: xlrelease.StringVariable
+        key: autoconfigDetails
+        requiresValue: false
+        showOnReleaseStart: false
+        label: Response details
+    disableNotifications: true
+    author: Digital.ai
+    logo:
+      type: xlrelease.TemplateLogo
+      contentType: image/svg+xml
+      file: !file "template-logo/97662a62108c2b1e1875c8e18f6d1c72a013d33c/deploy.svg"
