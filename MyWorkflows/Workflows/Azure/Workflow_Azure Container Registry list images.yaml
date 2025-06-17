@@ -12,18 +12,18 @@ spec:
   phases:
   - phase: List Images
     tasks:
-    - name: Azure Connection Test
+    - name: Azure Connection Testing
       type: xlrelease.UserInputTask
       description: Select the Azure Connection or create a new connection if you have
         not created one.
       variables:
       - azureConnection
-    - name: Specify the Registry Name Test
+    - name: Specify the Registry Name Testing
       type: xlrelease.UserInputTask
       description: Specify the Registry Name
       variables:
       - registryName
-    - name: List Images in Registry Test
+    - name: List Images in Registry Testing
       type: containerAzure.RunCommand
       description: Lists Images in specfied Registry
       variableMapping:
